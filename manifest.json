@@ -1,0 +1,20 @@
+{
+  "name": "猿猴川 潮汐ログ",
+  "short_name": "潮汐ログ",
+  "description": "猿猴川チヌ釣り記録 — 気象庁潮位データ連携",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0c2340",
+  "theme_color": "#0c2340",
+  "lang": "ja",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

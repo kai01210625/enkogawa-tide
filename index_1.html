@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0c2340">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="潮汐ログ">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="format-detection" content="telephone=no">
+<title>猿猴川 潮汐ログ</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700;800&family=JetBrains+Mono:wght@400;600&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+:root{
+  --ink:#0c2340;
+  --ink-2:#1a3556;
+  --ink-3:#2a4a73;
+  --washi:#f5efe0;
+  --washi-2:#ebe3d0;
+  --gold:#c8a85a;
+  --vermilion:#c8392e;
+  --tide:#4a8cc4;
+  --tide-glow:#7fb8e0;
+  --line:rgba(245,239,224,.12);
+  --line-strong:rgba(245,239,224,.25);
+  --base-font:15px;
+  --tap:56px; /* 最小タップサイズ (グローブ対応) */
+}
+/* 屋外モード: コントラスト最大化、純黒背景 + 明るい文字 */
+body.outdoor{
+  --ink:#000000;
+  --ink-2:#0a0a0a;
+  --ink-3:#1a1a1a;
+  --washi:#ffffff;
+  --washi-2:#f0f0f0;
+  --gold:#ffd24a;
+  --vermilion:#ff3a2a;
+  --tide:#6bc4ff;
+  --tide-glow:#a0d8ff;
+  --line:rgba(255,255,255,.2);
+  --line-strong:rgba(255,255,255,.4);
+  --base-font:17px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{overscroll-behavior:none}
+body{
+  background:var(--ink);
+  background-image:
+    radial-gradient(ellipse at top, var(--ink-2) 0%, var(--ink) 60%),
+    repeating-linear-gradient(45deg, transparent 0 18px, rgba(245,239,224,.015) 18px 19px);
+  color:var(--washi);
+  font-family:'Noto Sans JP',sans-serif;
+  font-size:var(--base-font);
+  min-height:100vh;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  -webkit-font-smoothing:antialiased;
+  user-select:none;
+  -webkit-user-select:none;
+  touch-action:manipulation; /* ダブルタップズーム無効化、応答性向上 */
+}
+body.outdoor{
+  background:#000;
+  background-image:none;
+}
+.app{max-width:560px;margin:0 auto;padding:14px 14px calc(90px + env(safe-area-inset-bottom)) 14px}
+
+/* ===== HEADER ===== */
+.brand{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 4px 14px;border-bottom:1px solid var(--line);
+  margin-bottom:14px;
+}
+.brand h1{
+  font-family:'Shippori Mincho',serif;
+  font-weight:800;font-size:24px;letter-spacing:.06em;
+  color:var(--washi);
+}
+.brand h1 .accent{color:var(--gold)}
+.header-tools{display:flex;gap:8px}
+.tool-btn{
+  width:44px;height:44px;border-radius:12px;
+  background:rgba(245,239,224,.06);border:1px solid var(--line-strong);
+  color:var(--washi);font-size:20px;cursor:pointer;
+  display:grid;place-items:center;
+  transition:all .15s;
+}
+.tool-btn:active{transform:scale(.9);background:var(--gold);color:var(--ink)}
+.tool-btn.on{background:var(--gold);color:var(--ink);border-color:var(--gold)}
+
+/* ===== DATE PICKER ===== */
+.date-bar{
+  display:flex;align-items:center;gap:8px;
+  background:rgba(245,239,224,.04);
+  border:1px solid var(--line-strong);
+  border-radius:14px;padding:6px 8px;margin-bottom:12px;
+}
+.date-bar input[type=date]{
+  flex:1;background:transparent;border:none;
+  color:var(--washi);font-family:'JetBrains Mono',monospace;
+  font-size:17px;font-weight:600;letter-spacing:.05em;
+  color-scheme:dark;
+  min-height:var(--tap);
+  padding:0 4px;
+}
+.date-bar input[type=date]:focus{outline:none}
+.nav-btn{
+  width:var(--tap);height:var(--tap);border-radius:12px;
+  background:rgba(245,239,224,.08);border:1px solid var(--line-strong);
+  color:var(--washi);font-size:24px;font-weight:600;cursor:pointer;
+  display:grid;place-items:center;
+  transition:all .12s ease;
+  flex-shrink:0;
+}
+.nav-btn:active{background:var(--gold);color:var(--ink);transform:scale(.92)}
+.nav-btn.today-btn{
+  width:auto;padding:0 14px;font-size:14px;font-weight:700;
+  font-family:'Shippori Mincho',serif;letter-spacing:.1em;
+}
+
+/* ===== SESSION BAR ===== */
+.session-bar{
+  background:rgba(245,239,224,.04);
+  border:1px solid var(--line-strong);
+  border-radius:14px;padding:8px 10px;margin-bottom:12px;
+  min-height:64px;display:flex;align-items:center;
+}
+.session-empty{
+  display:flex;justify-content:space-between;align-items:center;
+  width:100%;color:var(--washi-2);font-size:14px;letter-spacing:.05em;
+  gap:10px;
+}
+.session-empty span{font-weight:500}
+.session-active{
+  display:flex;justify-content:space-between;align-items:center;
+  width:100%;gap:10px;
+}
+.session-info{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
+.session-dot{
+  width:12px;height:12px;border-radius:50%;
+  background:var(--gold);
+  box-shadow:0 0 12px var(--gold);
+  animation:pulse 1.6s ease-in-out infinite;
+  flex-shrink:0;
+}
+@keyframes pulse{
+  0%,100%{transform:scale(1);opacity:1}
+  50%{transform:scale(1.3);opacity:.6}
+}
+.session-color{
+  font-family:'Shippori Mincho',serif;
+  font-size:18px;font-weight:700;color:var(--washi);letter-spacing:.08em;
+}
+.session-time{
+  font-family:'JetBrains Mono',monospace;
+  font-size:12px;color:var(--washi-2);
+}
+.session-elapsed{
+  font-family:'JetBrains Mono',monospace;
+  font-size:13px;color:var(--gold);font-weight:600;
+  margin-left:6px;
+}
+.session-actions{display:flex;gap:6px;flex-shrink:0}
+.btn-mini{
+  padding:0 14px;min-height:48px;min-width:48px;
+  border-radius:10px;
+  background:rgba(200,168,90,.18);border:1px solid var(--gold);
+  color:var(--gold);font-size:13px;font-weight:600;cursor:pointer;
+  font-family:'Noto Sans JP',sans-serif;letter-spacing:.05em;
+}
+.btn-mini:active{background:var(--gold);color:var(--ink);transform:scale(.94)}
+.btn-mini.stop{background:rgba(200,57,46,.18);border-color:var(--vermilion);color:var(--vermilion)}
+.btn-mini.stop:active{background:var(--vermilion);color:var(--washi)}
+.btn-mini.primary{
+  background:var(--gold);color:var(--ink);
+  font-weight:700;
+}
+
+.chart-title .dot.session{
+  background:var(--gold);opacity:.6;
+}
+
+/* ===== SESSION PANEL ===== */
+.session-summary{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:8px;
+}
+.session-summary .cell{
+  background:rgba(245,239,224,.04);border:1px solid var(--line);
+  border-radius:10px;padding:10px 8px;text-align:center;
+}
+.session-summary .cell .label{
+  font-size:9px;color:var(--washi-2);letter-spacing:.15em;
+  opacity:.7;margin-bottom:4px;
+}
+.session-summary .cell .val{
+  font-family:'JetBrains Mono',monospace;
+  font-size:13px;font-weight:700;color:var(--gold);
+}
+.session-summary .cell .val.big{font-size:18px}
+
+.session-list{display:flex;flex-direction:column;gap:6px}
+.session-card{
+  display:grid;grid-template-columns:auto 1fr auto auto;
+  gap:10px;align-items:center;
+  background:rgba(245,239,224,.04);
+  border:1px solid var(--line);
+  border-left:3px solid var(--gold);
+  border-radius:8px;padding:8px 10px;
+  font-size:12px;
+}
+.session-card.active{
+  border-left-color:var(--vermilion);
+  box-shadow:0 0 0 1px rgba(200,57,46,.3);
+}
+.session-card .s-time{
+  font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--gold);
+}
+.session-card .s-color{font-weight:600;color:var(--washi)}
+.session-card .s-stat{
+  font-family:'JetBrains Mono',monospace;font-size:10px;
+  color:var(--washi-2);text-align:right;
+}
+.session-card .s-stat b{color:var(--vermilion);font-size:12px}
+
+.lure-picker{
+  position:fixed;inset:0;background:rgba(12,35,64,.92);
+  backdrop-filter:blur(6px);
+  display:none;align-items:flex-end;justify-content:center;
+  z-index:2000;padding:0;
+}
+.lure-picker.show{display:flex}
+.lure-picker-inner{
+  background:var(--ink-2);
+  border-top:2px solid var(--gold);
+  border-radius:24px 24px 0 0;
+  padding:24px 20px calc(24px + env(safe-area-inset-bottom));
+  width:100%;max-width:560px;
+  box-shadow:0 -20px 60px rgba(0,0,0,.6);
+  animation:slideUp .25s cubic-bezier(.2,.9,.3,1.2);
+}
+@keyframes slideUp{
+  from{transform:translateY(100%)}
+  to{transform:translateY(0)}
+}
+.lure-picker h3{
+  font-family:'Shippori Mincho',serif;
+  font-size:18px;letter-spacing:.15em;color:var(--gold);
+  margin-bottom:18px;text-align:center;
+}
+.lure-grid{
+  display:grid;grid-template-columns:repeat(2,1fr);gap:10px;
+}
+.lure-grid button{
+  padding:20px 12px;border-radius:14px;
+  border:1px solid var(--line-strong);
+  background:rgba(245,239,224,.06);color:var(--washi);
+  font-family:'Shippori Mincho',serif;font-size:18px;
+  font-weight:700;letter-spacing:.1em;
+  cursor:pointer;
+  min-height:64px;
+  position:relative;
+  display:flex;align-items:center;justify-content:center;gap:10px;
+}
+.lure-grid button::before{
+  content:'';width:18px;height:18px;border-radius:50%;
+  background:var(--swatch,#888);
+  border:2px solid rgba(255,255,255,.3);
+  flex-shrink:0;
+}
+.lure-grid button:active{background:var(--gold);color:var(--ink);transform:scale(.95)}
+.lure-picker-close{
+  width:100%;margin-top:16px;padding:16px;border-radius:12px;
+  background:transparent;border:1px solid var(--line-strong);color:var(--washi-2);
+  font-size:15px;font-weight:600;cursor:pointer;
+  min-height:var(--tap);
+}
+.lure-picker-close:active{background:rgba(245,239,224,.08)}
+
+/* ===== TIDE INFO STRIP ===== */
+.tide-info{
+  display:grid;grid-template-columns:repeat(3,1fr);
+  gap:8px;margin-bottom:12px;
+}
+.tide-info .cell{
+  background:rgba(245,239,224,.05);
+  border:1px solid var(--line-strong);
+  border-radius:12px;padding:12px 8px;text-align:center;
+  min-height:74px;display:flex;flex-direction:column;justify-content:center;
+}
+.tide-info .label{
+  font-size:11px;color:var(--washi-2);opacity:.85;
+  letter-spacing:.15em;margin-bottom:6px;font-weight:600;
+}
+.tide-info .val{
+  font-family:'JetBrains Mono',monospace;
+  font-size:15px;font-weight:700;color:var(--gold);
+}
+.tide-info .val.small{font-size:13px;line-height:1.4}
+
+/* ===== CHART ===== */
+.chart-wrap{
+  background:rgba(245,239,224,.04);
+  border:1px solid var(--line);
+  border-radius:14px;padding:10px 8px 6px;
+  margin-bottom:12px;
+  position:relative;
+}
+.chart-title{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:0 8px 6px;
+}
+.chart-title h2{
+  font-family:'Shippori Mincho',serif;
+  font-size:13px;font-weight:700;letter-spacing:.1em;
+  color:var(--washi);
+}
+.chart-title .legend{
+  display:flex;gap:10px;font-size:11px;color:var(--washi-2);
+  font-family:'JetBrains Mono',monospace;
+}
+.chart-title .dot{
+  display:inline-block;width:9px;height:9px;border-radius:50%;
+  margin-right:4px;vertical-align:middle;
+}
+.chart-title .dot.tide{background:var(--tide-glow)}
+.chart-title .dot.hit{background:var(--vermilion);box-shadow:0 0 6px var(--vermilion)}
+#chart{max-height:220px}
+.chart-empty{
+  position:absolute;inset:50px 12px 16px;
+  display:grid;place-items:center;
+  color:var(--washi-2);opacity:.55;font-size:13px;
+  text-align:center;pointer-events:none;
+}
+
+/* ===== HIT BUTTON ===== */
+.hit-zone{
+  position:relative;margin-bottom:14px;
+}
+.hit-btn{
+  width:100%;padding:0;height:110px;
+  border:none;border-radius:22px;
+  background:linear-gradient(135deg, var(--vermilion) 0%, #8a2520 100%);
+  color:var(--washi);
+  font-family:'Shippori Mincho',serif;
+  font-size:30px;font-weight:800;letter-spacing:.35em;
+  cursor:pointer;
+  box-shadow:
+    0 10px 30px rgba(200,57,46,.45),
+    inset 0 2px 0 rgba(255,255,255,.2),
+    inset 0 -3px 0 rgba(0,0,0,.2);
+  transition:all .08s ease;
+  position:relative;overflow:hidden;
+  text-shadow:0 2px 6px rgba(0,0,0,.4);
+}
+.hit-btn:active{
+  transform:scale(.96) translateY(2px);
+  box-shadow:
+    0 4px 12px rgba(200,57,46,.6),
+    inset 0 2px 0 rgba(255,255,255,.15);
+}
+.hit-btn .hit-sub{
+  display:block;font-size:11px;font-weight:600;
+  letter-spacing:.2em;opacity:.85;margin-top:4px;
+  font-family:'JetBrains Mono',monospace;
+  text-shadow:none;
+}
+.hit-btn::before{
+  content:'';position:absolute;top:50%;left:-100%;
+  width:100%;height:2px;background:rgba(255,255,255,.5);
+  animation:none;
+}
+.hit-btn.flash::before{animation:flash .6s ease-out}
+@keyframes flash{
+  0%{left:-100%;opacity:0}
+  50%{opacity:1}
+  100%{left:100%;opacity:0}
+}
+.hit-btn.flash{
+  animation:hitPulse .4s ease-out;
+}
+@keyframes hitPulse{
+  0%{box-shadow:0 0 0 0 rgba(200,57,46,.7), 0 10px 30px rgba(200,57,46,.45)}
+  100%{box-shadow:0 0 0 30px rgba(200,57,46,0), 0 10px 30px rgba(200,57,46,.45)}
+}
+
+/* ===== TAB BAR ===== */
+.tabs{
+  display:flex;gap:0;margin-bottom:12px;
+  border-bottom:1px solid var(--line);
+  position:sticky;top:0;background:var(--ink);z-index:10;
+}
+.tab{
+  flex:1;padding:14px 8px;background:transparent;border:none;
+  color:var(--washi-2);font-size:14px;font-weight:600;
+  font-family:'Noto Sans JP',sans-serif;letter-spacing:.08em;
+  cursor:pointer;position:relative;
+  border-bottom:3px solid transparent;
+  transition:all .15s;
+  min-height:var(--tap);
+}
+.tab.active{color:var(--gold);border-bottom-color:var(--gold)}
+
+/* ===== LIST / FORM ===== */
+.panel{display:none}
+.panel.active{display:block;animation:fadeIn .3s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+.hit-list{display:flex;flex-direction:column;gap:8px}
+.hit-card{
+  background:rgba(245,239,224,.05);
+  border:1px solid var(--line);
+  border-left:4px solid var(--vermilion);
+  border-radius:10px;padding:12px 14px;
+  display:grid;grid-template-columns:auto 1fr auto;
+  gap:12px;align-items:center;
+  min-height:var(--tap);
+}
+.hit-card .time{
+  font-family:'JetBrains Mono',monospace;
+  font-size:16px;font-weight:700;color:var(--gold);
+}
+.hit-card .meta{font-size:13px;color:var(--washi-2);line-height:1.4}
+.hit-card .meta b{color:var(--washi);font-weight:600}
+.del-btn{
+  background:transparent;border:1px solid var(--line);
+  color:var(--washi-2);
+  font-size:18px;cursor:pointer;
+  width:44px;height:44px;border-radius:10px;
+  display:grid;place-items:center;
+  flex-shrink:0;
+}
+.del-btn:active{background:var(--vermilion);color:var(--washi);border-color:var(--vermilion)}
+
+.empty-list{
+  text-align:center;padding:40px 20px;color:var(--washi-2);
+  opacity:.5;font-size:12px;line-height:1.8;
+}
+
+/* ===== FORM ===== */
+.form-grid{display:flex;flex-direction:column;gap:14px}
+.field label{
+  display:block;font-size:12px;color:var(--washi-2);
+  letter-spacing:.15em;margin-bottom:6px;opacity:.9;font-weight:600;
+}
+.field input, .field select{
+  width:100%;background:rgba(245,239,224,.06);
+  border:1px solid var(--line-strong);border-radius:12px;
+  padding:14px 14px;color:var(--washi);font-size:16px;
+  font-family:'Noto Sans JP',sans-serif;
+  color-scheme:dark;
+  min-height:var(--tap);
+}
+.field input:focus, .field select:focus{
+  outline:none;border-color:var(--gold);
+  background:rgba(200,168,90,.08);
+}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+/* ===== DATA PANEL ===== */
+.data-section{
+  background:rgba(245,239,224,.03);border:1px solid var(--line);
+  border-radius:12px;padding:14px;margin-bottom:12px;
+}
+.data-section h3{
+  font-family:'Shippori Mincho',serif;
+  font-size:13px;letter-spacing:.1em;margin-bottom:10px;
+  color:var(--gold);
+}
+.data-section p{font-size:11px;line-height:1.7;color:var(--washi-2);margin-bottom:8px}
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;
+  padding:13px 18px;min-height:48px;
+  background:rgba(200,168,90,.18);border:1px solid var(--gold);
+  border-radius:10px;color:var(--gold);
+  font-size:13px;letter-spacing:.1em;cursor:pointer;font-weight:600;
+  font-family:'Noto Sans JP',sans-serif;
+  margin-right:6px;margin-top:6px;
+}
+.btn:active{background:var(--gold);color:var(--ink);transform:scale(.96)}
+.btn.ghost{background:transparent;border-color:var(--line-strong);color:var(--washi-2)}
+.btn.danger{border-color:var(--vermilion);color:var(--vermilion);background:rgba(200,57,46,.12)}
+.btn.danger:active{background:var(--vermilion);color:var(--washi)}
+
+textarea.paste-box{
+  width:100%;height:120px;background:rgba(0,0,0,.25);
+  border:1px solid var(--line-strong);border-radius:8px;
+  color:var(--washi);padding:10px;
+  font-family:'JetBrains Mono',monospace;font-size:10px;
+  resize:vertical;
+}
+textarea.paste-box:focus{outline:none;border-color:var(--gold)}
+
+.status{
+  font-family:'JetBrains Mono',monospace;font-size:10px;
+  padding:6px 10px;border-radius:6px;margin-top:8px;
+  display:none;
+}
+.status.show{display:block}
+.status.ok{background:rgba(74,140,196,.15);color:var(--tide-glow);border:1px solid var(--tide)}
+.status.err{background:rgba(200,57,46,.15);color:#ff8a7a;border:1px solid var(--vermilion)}
+
+/* ===== TOAST ===== */
+.toast{
+  position:fixed;bottom:calc(30px + env(safe-area-inset-bottom));
+  left:50%;transform:translateX(-50%) translateY(120px);
+  background:var(--ink-3);color:var(--washi);
+  padding:14px 28px;border-radius:32px;font-size:16px;font-weight:600;
+  border:1.5px solid var(--gold);
+  box-shadow:0 12px 32px rgba(0,0,0,.5);
+  transition:transform .3s cubic-bezier(.2,.9,.3,1.4);
+  z-index:1500;font-family:'Shippori Mincho',serif;letter-spacing:.12em;
+}
+.toast.show{transform:translateX(-50%) translateY(0)}
+
+/* ===== FOOTER MARK ===== */
+.mark{
+  text-align:center;font-size:9px;color:var(--washi-2);
+  opacity:.4;letter-spacing:.3em;margin-top:24px;
+  font-family:'JetBrains Mono',monospace;
+}
+.mark::before, .mark::after{content:'—';margin:0 8px}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- HEADER -->
+  <header class="brand">
+    <h1>猿猴川 <span class="accent">潮汐</span></h1>
+    <div class="header-tools">
+      <button class="tool-btn" id="outdoorToggle" aria-label="屋外モード切替" title="屋外モード">☀</button>
+      <button class="tool-btn" id="wakeLockToggle" aria-label="スリープ防止" title="画面ロック防止">🔓</button>
+    </div>
+  </header>
+
+  <!-- ACTIVE SESSION DISPLAY (釣り場で最重要) -->
+  <div class="session-bar" id="sessionBar">
+    <div class="session-empty" id="sessionEmpty">
+      <span>投入記録なし</span>
+      <button class="btn-mini primary" id="startSessionBtn">▶ 投入開始</button>
+    </div>
+    <div class="session-active" id="sessionActive" style="display:none">
+      <div class="session-info">
+        <span class="session-dot"></span>
+        <div>
+          <div><span class="session-color" id="activeColor">—</span><span class="session-elapsed" id="activeElapsed">0:00</span></div>
+          <div class="session-time" id="activeTime">—</div>
+        </div>
+      </div>
+      <div class="session-actions">
+        <button class="btn-mini" id="changeLureBtn">変更</button>
+        <button class="btn-mini stop" id="stopSessionBtn">終了</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- HIT BUTTON (最も到達しやすい位置) -->
+  <div class="hit-zone">
+    <button class="hit-btn" id="hitBtn">
+      ＋ HIT
+      <span class="hit-sub" id="hitSub">タップで記録</span>
+    </button>
+  </div>
+
+  <!-- TIDE INFO -->
+  <div class="tide-info">
+    <div class="cell">
+      <div class="label">満潮</div>
+      <div class="val small" id="info-high">—</div>
+    </div>
+    <div class="cell">
+      <div class="label">干潮</div>
+      <div class="val small" id="info-low">—</div>
+    </div>
+    <div class="cell">
+      <div class="label">HIT / 投入</div>
+      <div class="val small" id="info-hits">0</div>
+    </div>
+  </div>
+
+  <!-- CHART -->
+  <div class="chart-wrap">
+    <div class="chart-title">
+      <h2>TIDE × HIT</h2>
+      <div class="legend">
+        <span><span class="dot tide"></span>潮位</span>
+        <span><span class="dot session"></span>投入</span>
+        <span><span class="dot hit"></span>HIT</span>
+      </div>
+    </div>
+    <canvas id="chart"></canvas>
+    <div class="chart-empty" id="chartEmpty">潮位データを取得してください<br><span style="font-size:11px">「データ」タブから</span></div>
+  </div>
+
+  <!-- DATE (補助的なので下に) -->
+  <div class="date-bar">
+    <button class="nav-btn" id="prevDay" aria-label="前日">‹</button>
+    <input type="date" id="datePicker">
+    <button class="nav-btn" id="nextDay" aria-label="翌日">›</button>
+    <button class="nav-btn today-btn" id="todayBtn" aria-label="今日">今日</button>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs">
+    <button class="tab active" data-panel="list">記録</button>
+    <button class="tab" data-panel="sessions">投入</button>
+    <button class="tab" data-panel="form">詳細入力</button>
+    <button class="tab" data-panel="data">データ</button>
+  </div>
+
+  <!-- LIST -->
+  <div class="panel active" id="panel-list">
+    <div class="hit-list" id="hitList"></div>
+  </div>
+
+  <!-- SESSIONS -->
+  <div class="panel" id="panel-sessions">
+    <div class="session-summary" id="sessionSummary"></div>
+
+    <div class="form-grid" style="margin-top:14px">
+      <div style="font-size:10px;color:var(--washi-2);letter-spacing:.18em;margin-bottom:4px">手動でセッション追加</div>
+      <div class="row">
+        <div class="field">
+          <label>開始</label>
+          <input type="time" id="s-start">
+        </div>
+        <div class="field">
+          <label>終了</label>
+          <input type="time" id="s-end">
+        </div>
+      </div>
+      <div class="field">
+        <label>ルアー色</label>
+        <select id="s-color">
+          <option value="赤">赤</option>
+          <option value="ピンク">ピンク</option>
+          <option value="オレンジ">オレンジ</option>
+          <option value="チャート">チャート</option>
+          <option value="ナチュラル">ナチュラル</option>
+          <option value="クリア">クリア</option>
+          <option value="黒">黒</option>
+          <option value="その他">その他</option>
+        </select>
+      </div>
+      <button class="btn" id="addSessionBtn" style="width:100%;padding:11px;font-size:13px">セッションを追加</button>
+    </div>
+
+    <div style="margin-top:18px">
+      <div style="font-size:10px;color:var(--washi-2);letter-spacing:.18em;margin-bottom:8px">この日のセッション一覧</div>
+      <div class="session-list" id="sessionList"></div>
+    </div>
+  </div>
+
+  <!-- FORM -->
+  <div class="panel" id="panel-form">
+    <div class="form-grid">
+      <div class="row">
+        <div class="field">
+          <label>時刻</label>
+          <input type="time" id="f-time">
+        </div>
+        <div class="field">
+          <label>ルアー色</label>
+          <select id="f-color">
+            <option value="赤">赤</option>
+            <option value="ピンク">ピンク</option>
+            <option value="オレンジ">オレンジ</option>
+            <option value="チャート">チャート</option>
+            <option value="ナチュラル">ナチュラル</option>
+            <option value="クリア">クリア</option>
+            <option value="黒">黒</option>
+            <option value="その他">その他</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>サイズ (cm)</label>
+          <input type="number" id="f-size" min="0" step="0.5" placeholder="例: 38">
+        </div>
+        <div class="field">
+          <label>天候</label>
+          <select id="f-weather">
+            <option value="">—</option>
+            <option value="晴">晴</option>
+            <option value="曇">曇</option>
+            <option value="雨">雨</option>
+            <option value="風強">風強</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>メモ</label>
+        <input type="text" id="f-memo" placeholder="ポイント・状況など">
+      </div>
+      <button class="btn" id="addDetailed" style="width:100%;padding:12px;font-size:13px">この内容で記録</button>
+    </div>
+  </div>
+
+  <!-- DATA -->
+  <div class="panel" id="panel-data">
+
+    <div class="data-section">
+      <h3>潮位データ取得</h3>
+      <p>気象庁の広島観測点（Q8）の天文潮位を使用。年単位で取得・キャッシュします。</p>
+      <p style="opacity:.55">※ ブラウザのCORS制限により直接取得できない場合は、下のテキスト貼付け方式を使ってください。</p>
+      <button class="btn" id="fetchTide">自動取得（試行）</button>
+      <button class="btn ghost" id="showPaste">テキスト貼付け</button>
+      <div class="status" id="fetchStatus"></div>
+
+      <div id="pasteArea" style="display:none;margin-top:10px">
+        <p style="margin-top:8px">気象庁「<a href="https://www.data.jma.go.jp/kaiyou/db/tide/suisan/suisan.php?stn=Q8" target="_blank" style="color:var(--gold)">広島の潮位表</a>」→ 「テキストデータ版」をダウンロードし、内容を貼付けてください。</p>
+        <textarea class="paste-box" id="pasteBox" placeholder="例: 1141341511641731791811791711601461321221171171231381581791982182332432472412261972  4 38137  5 1212 21214219 28*&#10;... (1年分)"></textarea>
+        <button class="btn" id="parsePaste" style="margin-top:6px">取込み</button>
+      </div>
+    </div>
+
+    <div class="data-section">
+      <h3>記録のエクスポート / インポート</h3>
+      <p>蓄積したヒット記録を保存・移行できます。Excelは複数シート(生データ・潮位マトリクス・色×潮位帯クロス集計など)で出力され、相関分析にそのまま使えます。</p>
+      <button class="btn" id="exportXLSX">Excel書出し</button>
+      <button class="btn" id="exportCSV">CSV書出し</button>
+      <button class="btn" id="exportJSON">JSON書出し</button>
+      <button class="btn ghost" id="importBtn">JSON読込み</button>
+      <input type="file" id="importFile" accept=".json" style="display:none">
+    </div>
+
+    <div class="data-section">
+      <h3>集計</h3>
+      <div id="stats" style="font-size:11px;line-height:1.9;color:var(--washi-2);font-family:'JetBrains Mono',monospace">
+        集計中…
+      </div>
+    </div>
+
+    <div class="data-section">
+      <h3>データ管理</h3>
+      <button class="btn danger" id="clearAll">全データ削除</button>
+    </div>
+
+  </div>
+
+  <div class="mark">ENKOGAWA · CHINU · TIDE</div>
+</div>
+
+<div class="toast" id="toast">記録しました</div>
+
+<!-- ルアー選択モーダル -->
+<div class="lure-picker" id="lurePicker">
+  <div class="lure-picker-inner">
+    <h3 id="lurePickerTitle">ルアー色を選択</h3>
+    <div class="lure-grid" id="lureGrid"></div>
+    <button class="lure-picker-close" id="lurePickerClose">キャンセル</button>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
