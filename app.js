@@ -180,9 +180,80 @@ function totalMinutesForDate(d){
 // 満干潮が無い枠は 9999999 (時刻9999, 潮位999)
 // ============================================================
 function parseJMATideText(text){
-  const lines = text.split(/\r?\n/).filter(l => l.length >= 78);
+  // HTMLタグが混入していたら除去
+  let cleaned = text;
+  if(/<[a-zA-Z]/.test(cleaned)){
+    // textarea/pre等の中身を抜き出す
+    const m = cleaned.match(/<pre[^>]*>([\s\S]*?)<\/pre>/i) || cleaned.match(/<textarea[^>]*>([\s\S]*?)<\/textarea>/i);
+    if(m) cleaned = m[1];
+    cleaned = cleaned.replace(/<[^>]+>/g, ''); // 残りのタグ除去
+    cleaned = cleaned.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+  }
+  // タブを空白に変換、行末の空白も削除しないで保持
+  cleaned = cleaned.replace(/\t/g, ' ');
+
+  // 改行で分割
+  let lines = cleaned.split(/\r?\n/);
+
+  // 行頭の空白でパディングされた値が削れている可能性に対応:
+  // 各行を解析して、行末の YYMMDD パターン + 地点記号(英大文字+英数字) を逆向きに探し、その位置から72バイト戻った位置を始点とする
+  const normalizedLines = [];
+  for(const raw of lines){
+    if(!raw) continue;
+    if(raw.length < 30) continue; // 短すぎる行は除外
+    let line = raw;
+    // 行を右詰め: 76文字未満なら先頭に空白を補う
+    // YYMMDD+地点記号(80カラム目)の位置を探す
+    // 地点記号は2文字の英字。Q8 などの地点コード
+    const stnMatch = line.match(/(\d{6})([A-Z][A-Z0-9])/);
+    if(stnMatch){
+      const idx = line.indexOf(stnMatch[0]);
+      // idxはYYMMDDの開始位置。これがカラム73(0-indexedで72)になるべき
+      const desiredStart = 72;
+      if(idx < desiredStart){
+        // 先頭に空白を補ってパディング
+        line = ' '.repeat(desiredStart - idx) + line;
+      }
+    }
+    // 80カラム未満ならスキップ
+    if(line.length < 80) continue;
+    normalizedLines.push(line);
+  }
+
+  // 1行に複数日付分が連結しているケース(改行が無い長文)も再分割
+  const finalLines = [];
+  for(const line of normalizedLines){
+    if(line.length < 200){
+      finalLines.push(line);
+      continue;
+    }
+    // 「YYMMDD + 地点記号2文字(英大)」のパターンを総当たりで探す
+    // 各マッチ位置 - 72 がその日のレコード開始位置
+    const regex = /(\d{6})([A-Z][A-Z0-9])/g;
+    const positions = [];
+    let m;
+    while((m = regex.exec(line)) !== null){
+      // YYMMDDが妥当(月1-12,日1-31)かチェック
+      const ymd = m[1];
+      const mm = parseInt(ymd.substr(2,2), 10);
+      const dd = parseInt(ymd.substr(4,2), 10);
+      if(mm < 1 || mm > 12 || dd < 1 || dd > 31) continue;
+      positions.push(m.index);
+    }
+    // 各位置を起点に1日分(136文字程度)を切り出す
+    for(let i = 0; i < positions.length; i++){
+      const start = Math.max(0, positions[i] - 72); // YYMMDDの72バイト前から
+      const end = i+1 < positions.length ? positions[i+1] - 72 : line.length;
+      finalLines.push(line.slice(start, end));
+    }
+  }
+
   const result = {};
-  for(const line of lines){
+  let parseSuccess = 0;
+  let parseFailed = 0;
+  const failedDates = [];
+
+  for(const line of finalLines){
     const hourly = [];
     for(let h=0; h<24; h++){
       const s = line.substr(h*3, 3).trim();
@@ -191,9 +262,17 @@ function parseJMATideText(text){
     const yy = line.substr(72,2);
     const mm = line.substr(74,2);
     const dd = line.substr(76,2);
-    if(!/^\d{2}$/.test(yy) || !/^\d{2}$/.test(mm) || !/^\d{2}$/.test(dd)) continue;
+    if(!/^\d{2}$/.test(yy) || !/^\d{2}$/.test(mm) || !/^\d{2}$/.test(dd)){
+      parseFailed++;
+      continue;
+    }
+    const mmN = parseInt(mm,10), ddN = parseInt(dd,10);
+    if(mmN < 1 || mmN > 12 || ddN < 1 || ddN > 31){
+      parseFailed++;
+      continue;
+    }
 
-    const year = parseInt(yy,10) + 2000; // 2000+ assumption
+    const year = parseInt(yy,10) + 2000;
     const dateStr = `${year}-${mm}-${dd}`;
 
     // 満潮 (4セット)
@@ -209,7 +288,7 @@ function parseJMATideText(text){
       if(isNaN(hi)||hi>=99) continue;
       highs.push({time:`${pad(hi)}:${pad(mi)}`, level:li});
     }
-    // 干潮 (4セット, 開始は col 109 = index 108)
+    // 干潮
     const lows = [];
     for(let i=0;i<4;i++){
       const off = 108 + i*7;
@@ -224,7 +303,21 @@ function parseJMATideText(text){
     }
 
     result[dateStr] = {hourly, high:highs, low:lows};
+    parseSuccess++;
   }
+
+  // 診断情報を結果に添付
+  Object.defineProperty(result, '_diag', {
+    value: {
+      inputBytes: text.length,
+      inputLines: lines.length,
+      normalizedLines: normalizedLines.length,
+      finalLines: finalLines.length,
+      parseSuccess,
+      parseFailed,
+    },
+    enumerable: false,
+  });
   return result;
 }
 
@@ -867,14 +960,19 @@ function initEvents(){
   document.getElementById('parsePaste').addEventListener('click', ()=>{
     const txt = document.getElementById('pasteBox').value;
     const parsed = parseJMATideText(txt);
-    const keys = Object.keys(parsed);
+    const keys = Object.keys(parsed).sort();
+    const d = parsed._diag || {};
     if(keys.length===0){
-      showStatus('err', 'パースできませんでした。フォーマットを確認してください。');
+      showStatus('err', `パースできませんでした。入力${d.inputLines||0}行 / 正規化後${d.normalizedLines||0}行 / 失敗${d.parseFailed||0}行。テキストデータ版をそのまま貼付けてください。`);
       return;
     }
     Object.assign(state.tide, parsed);
     saveTide();
-    showStatus('ok', `${keys.length}日分の潮位データを取込みました (${keys[0]} 〜 ${keys[keys.length-1]})`);
+    let msg = `${keys.length}日分の潮位データを取込みました (${keys[0]} 〜 ${keys[keys.length-1]})`;
+    if(d.inputLines && keys.length < d.inputLines * 0.8){
+      msg += ` ※${d.inputLines}行入力中 ${keys.length}日のみ成功。途中で形式が違う可能性あり`;
+    }
+    showStatus('ok', msg);
     document.getElementById('pasteBox').value='';
     renderAll();
   });
