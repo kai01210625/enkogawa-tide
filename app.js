@@ -204,8 +204,9 @@ function parseJMATideText(text){
     let line = raw;
     // 行を右詰め: 76文字未満なら先頭に空白を補う
     // YYMMDD+地点記号(80カラム目)の位置を探す
-    // 地点記号は2文字の英字。Q8 などの地点コード
-    const stnMatch = line.match(/(\d{6})([A-Z][A-Z0-9])/);
+    // YYは2桁固定、MM/DDは空白パディング許容("26 1 1Q8"などのケース)
+    // パターン: 2桁数字 + (空白or数字)×4 + 地点記号(英大字+英数字)
+    const stnMatch = line.match(/(\d{2}[\s\d][\s\d][\s\d][\s\d])([A-Z][A-Z0-9])/);
     if(stnMatch){
       const idx = line.indexOf(stnMatch[0]);
       // idxはYYMMDDの開始位置。これがカラム73(0-indexedで72)になるべき
@@ -228,16 +229,17 @@ function parseJMATideText(text){
       continue;
     }
     // 「YYMMDD + 地点記号2文字(英大)」のパターンを総当たりで探す
+    // MM/DDは空白パディング(" 1"等)も許容
     // 各マッチ位置 - 72 がその日のレコード開始位置
-    const regex = /(\d{6})([A-Z][A-Z0-9])/g;
+    const regex = /(\d{2}[\s\d][\s\d][\s\d][\s\d])([A-Z][A-Z0-9])/g;
     const positions = [];
     let m;
     while((m = regex.exec(line)) !== null){
       // YYMMDDが妥当(月1-12,日1-31)かチェック
       const ymd = m[1];
-      const mm = parseInt(ymd.substr(2,2), 10);
-      const dd = parseInt(ymd.substr(4,2), 10);
-      if(mm < 1 || mm > 12 || dd < 1 || dd > 31) continue;
+      const mm = parseInt(ymd.substr(2,2).trim(), 10);
+      const dd = parseInt(ymd.substr(4,2).trim(), 10);
+      if(isNaN(mm) || isNaN(dd) || mm < 1 || mm > 12 || dd < 1 || dd > 31) continue;
       positions.push(m.index);
     }
     // 各位置を起点に1日分(136文字程度)を切り出す
@@ -259,10 +261,11 @@ function parseJMATideText(text){
       const s = line.substr(h*3, 3).trim();
       hourly.push(s ? parseInt(s,10) : null);
     }
+    // 気象庁フォーマット: YYは2桁数字、MM/DDは「2桁数字 or 半角空白+1桁数字」
     const yy = line.substr(72,2);
-    const mm = line.substr(74,2);
-    const dd = line.substr(76,2);
-    if(!/^\d{2}$/.test(yy) || !/^\d{2}$/.test(mm) || !/^\d{2}$/.test(dd)){
+    const mm = line.substr(74,2).trim().padStart(2,'0');
+    const dd = line.substr(76,2).trim().padStart(2,'0');
+    if(!/^\d{2}$/.test(yy) || !/^\d{1,2}$/.test(mm) || !/^\d{1,2}$/.test(dd)){
       parseFailed++;
       continue;
     }
@@ -273,7 +276,7 @@ function parseJMATideText(text){
     }
 
     const year = parseInt(yy,10) + 2000;
-    const dateStr = `${year}-${mm}-${dd}`;
+    const dateStr = `${year}-${pad(mmN)}-${pad(ddN)}`;
 
     // 満潮 (4セット)
     const highs = [];
